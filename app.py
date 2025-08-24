@@ -181,9 +181,13 @@ question = st.text_input(
 )
 
 if recorded_audio and not question.strip():
-    question = transcribe_audio(client, io.BytesIO(recorded_audio))
-    if question:
-        st.markdown(f"**Transcribed question:** {question}")
+    audio_bytes = (
+        recorded_audio.get("bytes") if isinstance(recorded_audio, dict) else recorded_audio
+    )
+    if audio_bytes:
+        question = transcribe_audio(client, io.BytesIO(audio_bytes))
+        if question:
+            st.markdown(f"**Transcribed question:** {question}")
 elif audio_question is not None and not question.strip():
     question = transcribe_audio(client, audio_question)
     if question:
