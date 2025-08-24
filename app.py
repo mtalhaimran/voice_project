@@ -196,7 +196,11 @@ with col2:
     clear = st.button("Clear")
 
 if clear:
+    st.session_state.pop("last_answer", None)
     st.experimental_rerun()
+
+answer_box = st.empty()
+st.session_state.setdefault("last_answer", "")
 
 # System prompts
 tone_map = {
@@ -223,17 +227,20 @@ if go:
         if context else f"Question: {question}"
     )
 
-    st.markdown("**Answer:**")
-    placeholder = st.empty()
     collected = ""
     try:
         for token in ask_llm(client, model=model, system=system_prompt, user=user_prompt):
             collected += token
-            placeholder.markdown(collected)
+            answer_box.markdown(collected)
     except Exception as e:
         st.error(f"LLM error: {e}")
     if collected:
-        audio_out = text_to_speech(client, collected)
+        st.session_state["last_answer"] = collected
+
+if st.session_state.get("last_answer"):
+    answer_box.markdown(st.session_state["last_answer"])
+    if st.button("🔊 Play Answer Audio"):
+        audio_out = text_to_speech(client, st.session_state["last_answer"])
         if audio_out:
             st.audio(audio_out, format="audio/mp3")
 
