@@ -8,6 +8,7 @@ try:
     import numpy as np
     from pypdf import PdfReader
     from openai import OpenAI
+    from streamlit_mic_recorder import mic_recorder
 except ModuleNotFoundError as e:
     st.error(f"Missing dependency: {e.name}. Please install requirements with `pip install -r requirements.txt`.")
     st.stop()
@@ -86,6 +87,29 @@ def ask_llm(client, model, system, user, max_tokens=400, temperature=0.3):
     # small delay to ensure UI flush
     time.sleep(0.05)
 
+def transcribe_audio(client, file):
+    try:
+        transcript = client.audio.transcriptions.create(
+            model="gpt-4o-mini-transcribe",
+            file=file,
+        )
+        return transcript.text
+    except Exception as e:
+        st.error(f"Transcription error: {e}")
+        return ""
+
+def text_to_speech(client, text, voice="alloy"):
+    try:
+        speech = client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice=voice,
+            input=text,
+        )
+        return io.BytesIO(speech.content)
+    except Exception as e:
+        st.error(f"TTS error: {e}")
+        return None
+
 # ---------- UI ----------
 st.title("🎓 Educational AI – MVP (Text Q&A)")
 st.caption("Paste/upload a small dataset, ask a question, get an answer. Model: gpt-4o-mini by default.")
@@ -138,7 +162,32 @@ if kb_text:
 
 # Chat area
 st.markdown("### Ask a question")
-question = st.text_input("Your question", placeholder="e.g., Explain photosynthesis in simple steps.")
+
+# Record audio directly in the browser
+recorded_audio = mic_recorder(
+    start_prompt="🎙️ Record Question",
+    stop_prompt="Stop",
+    use_container_width=True,
+    key="recorder",
+)
+
+# Fallback to uploading an audio file
+audio_question = st.file_uploader(
+    "Or ask with voice (.wav, .mp3, .m4a)", type=["wav", "mp3", "m4a"]
+)
+
+question = st.text_input(
+    "Your question", placeholder="e.g., Explain photosynthesis in simple steps."
+)
+
+if recorded_audio and not question.strip():
+    question = transcribe_audio(client, io.BytesIO(recorded_audio))
+    if question:
+        st.markdown(f"**Transcribed question:** {question}")
+elif audio_question is not None and not question.strip():
+    question = transcribe_audio(client, audio_question)
+    if question:
+        st.markdown(f"**Transcribed question:** {question}")
 
 col1, col2 = st.columns([1,1])
 with col1:
@@ -183,6 +232,10 @@ if go:
             placeholder.markdown(collected)
     except Exception as e:
         st.error(f"LLM error: {e}")
+    if collected:
+        audio_out = text_to_speech(client, collected)
+        if audio_out:
+            st.audio(audio_out, format="audio/mp3")
 
 st.markdown("---")
-st.caption("MVP: text Q&A with optional context from your uploads/notes. Voice I/O can be added in the next iteration.")
+st.caption("Demo: text or voice Q&A with optional context from your uploads/notes.")
