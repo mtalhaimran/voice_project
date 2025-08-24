@@ -1,10 +1,16 @@
 import os
 import io
 import time
-import numpy as np
+
 import streamlit as st
-from pypdf import PdfReader
-from openai import OpenAI
+
+try:
+    import numpy as np
+    from pypdf import PdfReader
+    from openai import OpenAI
+except ModuleNotFoundError as e:
+    st.error(f"Missing dependency: {e.name}. Please install requirements with `pip install -r requirements.txt`.")
+    st.stop()
 
 # ---------- Config ----------
 st.set_page_config(page_title="Edu Voice MVP (Text Demo)", page_icon="🎓", layout="centered")
