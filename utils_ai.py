@@ -16,10 +16,10 @@ PRICING = {
 
 
 def transcribe_audio(client: OpenAI, file: io.BytesIO) -> str:
-    """Transcribe audio using Whisper API."""
+    """Transcribe audio using Whisper API (whisper-1)."""
     try:
         transcript = client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",
+            model="whisper-1",
             file=file,
         )
         return transcript.text
