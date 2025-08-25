@@ -1,115 +1,24 @@
-import os
-import io
-import time
-import base64
-
 import streamlit as st
 
 try:
-    import numpy as np
-    from pypdf import PdfReader
     from openai import OpenAI
     from streamlit_mic_recorder import mic_recorder
 except ModuleNotFoundError as e:
     st.error(f"Missing dependency: {e.name}. Please install requirements with `pip install -r requirements.txt`.")
     st.stop()
 
+from utils_io import (
+    get_api_key,
+    read_pdf,
+    read_txt,
+    audio_bytes_from_input,
+    compute_mic_level,
+)
+from utils_rag import chunk_text, embed_texts, retrieve_context
+from utils_ai import transcribe_cached, ask_llm, text_to_speech, estimate_cost
+
 # ---------- Config ----------
 st.set_page_config(page_title="Edu Voice MVP (Text Demo)", page_icon="🎓", layout="centered")
-
-# ---------- Helpers ----------
-def get_api_key():
-    # Prefer env var; allow UI override for quick tests
-    k_env = os.getenv("OPENAI_API_KEY", "").strip()
-    k_ui = st.session_state.get("api_key_input", "").strip()
-    return k_ui or k_env
-
-def read_txt(file):
-    return file.read().decode("utf-8", errors="ignore")
-
-def read_pdf(file):
-    reader = PdfReader(file)
-    parts = []
-    for page in reader.pages:
-        text = page.extract_text() or ""
-        parts.append(text)
-    return "\n".join(parts)
-
-def chunk_text(text, max_tokens_est=400):
-    # naive chunker by characters. ~4 chars ≈ 1 token. 400 tokens ≈ 1600 chars.
-    chunk_size = 1600
-    overlap = 200
-    text = text.strip().replace("\r", "")
-    chunks = []
-    i = 0
-    while i < len(text):
-        chunk = text[i : i + chunk_size]
-        chunks.append(chunk)
-        i += chunk_size - overlap
-    return chunks
-
-def embed_texts(client, texts):
-    # Use a small, cheap embedding model
-    # text-embedding-3-small returns 1536-d vectors
-    res = client.embeddings.create(model="text-embedding-3-small", input=texts)
-    return np.array([d.embedding for d in res.data], dtype=np.float32)
-
-def cosine_sim(a, b):
-    a_norm = a / (np.linalg.norm(a) + 1e-8)
-    b_norm = b / (np.linalg.norm(b, axis=1, keepdims=True) + 1e-8)
-    return np.dot(b_norm, a_norm)
-
-def retrieve_context(client, kb_chunks, kb_embeds, query, top_k=3):
-    if not kb_chunks:
-        return ""
-    q_vec = embed_texts(client, [query])[0]
-    sims = cosine_sim(q_vec, kb_embeds)
-    idx = np.argsort(-sims)[:top_k]
-    top_chunks = [kb_chunks[i] for i in idx]
-    return "\n\n".join(top_chunks)
-
-def ask_llm(client, model, system, user, max_tokens=400, temperature=0.3):
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role":"system","content":system},
-            {"role":"user","content":user}
-        ],
-        temperature=temperature,
-        max_tokens=max_tokens,
-        stream=True
-    )
-    # Stream tokens to UI
-    full = ""
-    for chunk in resp:
-        delta = chunk.choices[0].delta.content or ""
-        full += delta
-        yield delta
-    # small delay to ensure UI flush
-    time.sleep(0.05)
-
-def transcribe_audio(client, file):
-    try:
-        transcript = client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",
-            file=file,
-        )
-        return transcript.text
-    except Exception as e:
-        st.error(f"Transcription error: {e}")
-        return ""
-
-def text_to_speech(client, text, voice="alloy"):
-    try:
-        speech = client.audio.speech.create(
-            model="gpt-4o-mini-tts",
-            voice=voice,
-            input=text,
-        )
-        return io.BytesIO(speech.content)
-    except Exception as e:
-        st.error(f"TTS error: {e}")
-        return None
 
 # ---------- UI ----------
 st.title("🎓 Educational AI – MVP (Text Q&A)")
@@ -172,31 +81,23 @@ recorded_audio = mic_recorder(
     key="recorder",
 )
 
-# Fallback to uploading an audio file
-audio_question = st.file_uploader(
-    "Or ask with voice (.wav, .mp3, .m4a)", type=["wav", "mp3", "m4a"]
-)
-
 question = st.text_input(
     "Your question", placeholder="e.g., Explain photosynthesis in simple steps."
 )
 
-if recorded_audio and not question.strip():
-    if isinstance(recorded_audio, dict):
-        audio_bytes = recorded_audio["bytes"]
-        fmt = recorded_audio.get("format", "wav")
-    else:
-        audio_bytes = base64.b64decode(recorded_audio.split(",")[-1])
-        fmt = "wav"
-    audio_file = io.BytesIO(audio_bytes)
-    audio_file.name = f"question.{fmt}"
-    question = transcribe_audio(client, audio_file)
-    if question:
-        st.markdown(f"**Transcribed question:** {question}")
-elif audio_question is not None and not question.strip():
-    question = transcribe_audio(client, audio_question)
-    if question:
-        st.markdown(f"**Transcribed question:** {question}")
+if recorded_audio:
+    audio_bytes, fmt, sample_width = audio_bytes_from_input(recorded_audio)
+    level = compute_mic_level(audio_bytes, sample_width)
+    st.progress(min(int(level * 100), 100))
+    if st.button("Re-record"):
+        for k in ["recorder_output", "_last_mic_recorder_audio_id"]:
+            st.session_state.pop(k, None)
+        st.experimental_rerun()
+    if not question.strip():
+        cache = st.session_state.setdefault("transcription_cache", {})
+        question = transcribe_cached(client, audio_bytes, fmt, cache)
+        if question:
+            st.markdown(f"**Transcribed question:** {question}")
 
 col1, col2 = st.columns([1,1])
 with col1:
@@ -205,11 +106,13 @@ with col2:
     clear = st.button("Clear")
 
 if clear:
-    st.session_state.pop("last_answer", None)
+    for k in ("last_answer", "last_meta"):
+        st.session_state.pop(k, None)
     st.experimental_rerun()
 
 answer_box = st.empty()
 st.session_state.setdefault("last_answer", "")
+st.session_state.setdefault("last_meta", {})
 
 # System prompts
 tone_map = {
@@ -225,7 +128,6 @@ if go:
         st.warning("Please enter a question.")
         st.stop()
 
-    # Build context
     context = ""
     if kb_chunks and kb_embeds is not None:
         context = retrieve_context(client, kb_chunks, kb_embeds, question, top_k=top_k)
@@ -233,21 +135,30 @@ if go:
     user_prompt = (
         f"Answer the question using the context if relevant.\n\n"
         f"---\nContext:\n{context}\n---\n\nQuestion: {question}"
-        if context else f"Question: {question}"
+        if context
+        else f"Question: {question}"
     )
 
-    collected = ""
     try:
-        for token in ask_llm(client, model=model, system=system_prompt, user=user_prompt):
-            collected += token
-            answer_box.markdown(collected)
+        answer, usage, latency = ask_llm(
+            client, model=model, system=system_prompt, user=user_prompt
+        )
+        answer_box.markdown(answer)
+        st.session_state["last_answer"] = answer
+        st.session_state["last_meta"] = {
+            "latency": latency,
+            "cost": estimate_cost(usage, model),
+        }
     except Exception as e:
         st.error(f"LLM error: {e}")
-    if collected:
-        st.session_state["last_answer"] = collected
 
 if st.session_state.get("last_answer"):
     answer_box.markdown(st.session_state["last_answer"])
+    meta = st.session_state.get("last_meta", {})
+    if meta:
+        st.caption(
+            f"Latency: {meta.get('latency', 0):.2f}s • Estimated cost: ${meta.get('cost', 0):.6f}"
+        )
     if st.button("🔊 Play Answer Audio"):
         audio_out = text_to_speech(client, st.session_state["last_answer"])
         if audio_out:
