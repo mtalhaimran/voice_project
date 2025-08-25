@@ -2,10 +2,14 @@ import streamlit as st
 
 try:
     from openai import OpenAI
-    from streamlit_mic_recorder import mic_recorder
 except ModuleNotFoundError as e:
     st.error(f"Missing dependency: {e.name}. Please install requirements with `pip install -r requirements.txt`.")
     st.stop()
+
+try:
+    from streamlit_mic_recorder import mic_recorder
+except ModuleNotFoundError:
+    mic_recorder = None
 
 from utils_io import (
     get_api_key,
@@ -137,13 +141,18 @@ st.markdown("### Ask a question")
 
 question_box = st.empty()
 
-# Record audio directly in the browser
-recorded_audio = mic_recorder(
-    start_prompt="🎙️ Record Question",
-    stop_prompt="Stop",
-    use_container_width=True,
-    key="recorder",
-)
+# Record audio directly in the browser if supported
+if mic_recorder:
+    recorded_audio = mic_recorder(
+        start_prompt="🎙️ Record Question",
+        stop_prompt="Stop",
+        use_container_width=True,
+        key="recorder",
+    )
+else:
+    recorded_audio = None
+    st.info("streamlit-mic-recorder not installed. Upload an audio file instead.")
+
 uploaded_audio = st.file_uploader("Upload audio", type=["wav", "mp3", "m4a"])
 
 question = st.text_input(
