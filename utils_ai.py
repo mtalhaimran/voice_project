@@ -32,14 +32,17 @@ def transcribe_cached(
 
     suffix = f".{fmt}" if fmt else ""
     try:
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
             tmp.write(audio_bytes)
             tmp.flush()
-            with open(tmp.name, "rb") as f:
-                resp = client.audio.transcriptions.create(model="whisper-1", file=f)
-        text = resp.text.strip()
+            tmp.seek(0)
+            resp = client.audio.transcriptions.create(
+                model="whisper-1", file=tmp
+            )
     except Exception as e:
-        text = ""
+        raise RuntimeError(f"Transcription error: {e}") from e
+
+    text = resp.text.strip()
     cache[key] = text
     return text
 

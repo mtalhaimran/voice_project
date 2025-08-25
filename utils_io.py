@@ -45,8 +45,12 @@ def audio_bytes_from_input(recorded_audio: Union[dict, str]) -> Tuple[bytes, str
         fmt = recorded_audio.get("format") or recorded_audio.get("type") or "wav"
         if fmt.startswith("audio/"):
             fmt = fmt.split("/", 1)[-1]
+        if isinstance(data, str):
+            audio_bytes = base64.b64decode(data)
+        else:
+            audio_bytes = data or b""
         sample_rate = recorded_audio.get("sample_rate")
-        return data, fmt, sample_rate
+        return audio_bytes, fmt, sample_rate
 
     if isinstance(recorded_audio, str):
         header, b64data = (recorded_audio.split(",", 1) + [""])[0:2]

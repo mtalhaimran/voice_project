@@ -148,34 +148,41 @@ else:
     st.info("streamlit-mic-recorder not installed. Voice recording unavailable.")
 
 if recorded_audio:
-    audio_id = recorded_audio.get("id")
+    if isinstance(recorded_audio, dict):
+        audio_id = recorded_audio.get("id")
+    else:
+        audio_id = recorded_audio
     if st.session_state.get("_last_mic_recorder_audio_id") != audio_id:
         st.session_state["_last_mic_recorder_audio_id"] = audio_id
         audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
         st.session_state["last_mic_audio_bytes"] = audio_bytes
         st.session_state["last_mic_audio_fmt"] = fmt
-        cache = st.session_state.setdefault("transcription_cache", {})
-        if client:
-            with st.spinner("Transcribing..."):
-                try:
-                    st.session_state["question_text"] = transcribe_cached(
-                        client, audio_bytes, fmt, cache
-                    )
-                except Exception as e:
-                    st.error(f"Transcription error: {e}")
-        else:
-            st.error("API key required for transcription.")
+        st.session_state.pop("question_text", None)
         st.rerun()
 
 if st.session_state.get("last_mic_audio_bytes"):
-    st.audio(
-        st.session_state["last_mic_audio_bytes"],
-        format=f"audio/{st.session_state.get('last_mic_audio_fmt', 'wav')}",
-    )
+    bytes_ = st.session_state["last_mic_audio_bytes"]
+    fmt = st.session_state.get("last_mic_audio_fmt", "wav")
+    st.audio(bytes_, format=f"audio/{fmt}")
+    st.caption(f"Recorded audio: {len(bytes_)} bytes ({fmt})")
     if st.session_state.get("question_text"):
         transcript_box.markdown(
             f"**Transcription:** {st.session_state.get('question_text', '')}"
         )
+    else:
+        if client:
+            if st.button("📝 Transcribe voice"):
+                cache = st.session_state.setdefault("transcription_cache", {})
+                with st.spinner("Transcribing..."):
+                    try:
+                        text = transcribe_cached(client, bytes_, fmt, cache)
+                    except Exception as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state["question_text"] = text
+                        transcript_box.markdown(f"**Transcription:** {text}")
+        else:
+            st.error("API key required for transcription.")
 
 question = st.text_input(
     "Your question",
