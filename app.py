@@ -22,8 +22,6 @@ from utils_ai import transcribe_cached, ask_llm, ask_llm_stream, text_to_speech,
 
 def process_audio_question(
     client,
-    recorded_audio,
-    uploaded_audio,
     question,
     model,
     system_prompt,
@@ -139,7 +137,7 @@ if mic_recorder:
     )
 else:
     recorded_audio = None
-    st.info("streamlit-mic-recorder not installed. Upload an audio file instead.")
+    st.info("streamlit-mic-recorder not installed. Voice recording unavailable.")
 
 if recorded_audio:
     audio_id = recorded_audio.get("id")
@@ -152,8 +150,6 @@ if recorded_audio:
                 client, audio_bytes, fmt, cache
             )
             st.rerun()
-
-uploaded_audio = st.file_uploader("Upload audio", type=["wav", "mp3", "m4a"])
 
 question = st.text_input(
     "Your question", placeholder="e.g., Explain photosynthesis in simple steps.", key="question_text"
@@ -194,8 +190,6 @@ if go:
     try:
         q, answer, audio_out, meta = process_audio_question(
             client,
-            recorded_audio,
-            uploaded_audio,
             question,
             model,
             system_prompt,
