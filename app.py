@@ -151,7 +151,7 @@ if recorded_audio:
             st.session_state["question_text"] = transcribe_cached(
                 client, audio_bytes, fmt, cache
             )
-            st.experimental_rerun()
+            st.rerun()
 
 uploaded_audio = st.file_uploader("Upload audio", type=["wav", "mp3", "m4a"])
 
@@ -162,7 +162,7 @@ question = st.text_input(
 if recorded_audio and st.button("Re-record"):
     for k in ["recorder_output", "_last_mic_recorder_audio_id", "question_text"]:
         st.session_state.pop(k, None)
-    st.experimental_rerun()
+    st.rerun()
 
 col1, col2 = st.columns([1,1])
 with col1:
@@ -173,7 +173,7 @@ with col2:
 if clear:
     for k in ("last_answer", "last_meta", "last_audio", "last_question"):
         st.session_state.pop(k, None)
-    st.experimental_rerun()
+    st.rerun()
 
 answer_box = st.empty()
 st.session_state.setdefault("last_answer", "")
