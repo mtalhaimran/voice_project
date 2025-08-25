@@ -57,6 +57,8 @@ def compute_mic_level(audio_bytes: bytes, sample_width: int = 2) -> float:
     data = np.frombuffer(audio_bytes, dtype=dtype)
     if data.size == 0:
         return 0.0
-    level = float(np.sqrt(np.mean(np.square(data))))
+    rms = float(np.sqrt(np.mean(np.square(data, dtype=np.float64))))
+    if not np.isfinite(rms):
+        return 0.0
     max_val = float(np.iinfo(dtype).max)
-    return level / max_val
+    return rms / max_val

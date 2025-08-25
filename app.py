@@ -22,7 +22,9 @@ st.set_page_config(page_title="Edu Voice MVP (Text Demo)", page_icon="🎓", lay
 
 # ---------- UI ----------
 st.title("🎓 Educational AI – MVP (Text Q&A)")
-st.caption("Paste/upload a small dataset, ask a question, get an answer. Model: gpt-4o-mini by default.")
+st.caption(
+    "Paste/upload a small dataset, ask a question, get an answer. Model: gpt-4o-mini by default."
+)
 
 with st.sidebar:
     st.subheader("Settings")
@@ -73,6 +75,8 @@ if kb_text:
 # Chat area
 st.markdown("### Ask a question")
 
+question_box = st.empty()
+
 # Record audio directly in the browser
 recorded_audio = mic_recorder(
     start_prompt="🎙️ Record Question",
@@ -80,24 +84,33 @@ recorded_audio = mic_recorder(
     use_container_width=True,
     key="recorder",
 )
+uploaded_audio = st.file_uploader("Upload audio", type=["wav", "mp3", "m4a"])
 
 question = st.text_input(
     "Your question", placeholder="e.g., Explain photosynthesis in simple steps."
 )
 
+audio_bytes: bytes | None = None
+fmt, sample_width = "wav", 2
 if recorded_audio:
     audio_bytes, fmt, sample_width = audio_bytes_from_input(recorded_audio)
     level = compute_mic_level(audio_bytes, sample_width)
-    st.progress(min(int(level * 100), 100))
+    st.progress(int(max(0.0, min(level, 1.0)) * 100))
     if st.button("Re-record"):
         for k in ["recorder_output", "_last_mic_recorder_audio_id"]:
             st.session_state.pop(k, None)
         st.experimental_rerun()
-    if not question.strip():
-        cache = st.session_state.setdefault("transcription_cache", {})
-        question = transcribe_cached(client, audio_bytes, fmt, cache)
-        if question:
-            st.markdown(f"**Transcribed question:** {question}")
+elif uploaded_audio is not None:
+    audio_bytes = uploaded_audio.read()
+    fmt = uploaded_audio.name.split(".")[-1]
+
+if audio_bytes and not question.strip():
+    cache = st.session_state.setdefault("transcription_cache", {})
+    question = transcribe_cached(client, audio_bytes, fmt, cache)
+    if question:
+        question_box.markdown(f"**Question:** {question}")
+    else:
+        st.error("Transcription failed.")
 
 col1, col2 = st.columns([1,1])
 with col1:
@@ -106,13 +119,15 @@ with col2:
     clear = st.button("Clear")
 
 if clear:
-    for k in ("last_answer", "last_meta"):
+    for k in ("last_answer", "last_meta", "last_audio", "last_question"):
         st.session_state.pop(k, None)
     st.experimental_rerun()
 
 answer_box = st.empty()
 st.session_state.setdefault("last_answer", "")
 st.session_state.setdefault("last_meta", {})
+st.session_state.setdefault("last_audio", None)
+st.session_state.setdefault("last_question", "")
 
 # System prompts
 tone_map = {
@@ -126,43 +141,48 @@ system_prompt = tone_map[tone]
 if go:
     if not question.strip():
         st.warning("Please enter a question.")
-        st.stop()
+    else:
+        context = ""
+        if kb_chunks and kb_embeds is not None:
+            context = retrieve_context(client, kb_chunks, kb_embeds, question, top_k=top_k)
 
-    context = ""
-    if kb_chunks and kb_embeds is not None:
-        context = retrieve_context(client, kb_chunks, kb_embeds, question, top_k=top_k)
-
-    user_prompt = (
-        f"Answer the question using the context if relevant.\n\n"
-        f"---\nContext:\n{context}\n---\n\nQuestion: {question}"
-        if context
-        else f"Question: {question}"
-    )
-
-    try:
-        answer, usage, latency = ask_llm(
-            client, model=model, system=system_prompt, user=user_prompt
+        user_prompt = (
+            f"Answer the question using the context if relevant.\n\n"
+            f"---\nContext:\n{context}\n---\n\nQuestion: {question}"
+            if context
+            else f"Question: {question}"
         )
-        answer_box.markdown(answer)
-        st.session_state["last_answer"] = answer
-        st.session_state["last_meta"] = {
-            "latency": latency,
-            "cost": estimate_cost(usage, model),
-        }
-    except Exception as e:
-        st.error(f"LLM error: {e}")
+
+        try:
+            answer, usage, latency = ask_llm(
+                client, model=model, system=system_prompt, user=user_prompt
+            )
+            st.session_state["last_question"] = question
+            st.session_state["last_answer"] = answer
+            st.session_state["last_meta"] = {
+                "latency": latency,
+                "cost": estimate_cost(usage, model),
+            }
+            question_box.markdown(f"**Question:** {question}")
+            answer_box.markdown(answer)
+            audio_out = text_to_speech(client, answer)
+            if audio_out:
+                st.session_state["last_audio"] = audio_out
+            else:
+                st.error("TTS failed.")
+        except Exception as e:
+            st.error(f"LLM error: {e}")
 
 if st.session_state.get("last_answer"):
+    question_box.markdown(f"**Question:** {st.session_state.get('last_question', '')}")
     answer_box.markdown(st.session_state["last_answer"])
     meta = st.session_state.get("last_meta", {})
     if meta:
         st.caption(
             f"Latency: {meta.get('latency', 0):.2f}s • Estimated cost: ${meta.get('cost', 0):.6f}"
         )
-    if st.button("🔊 Play Answer Audio"):
-        audio_out = text_to_speech(client, st.session_state["last_answer"])
-        if audio_out:
-            st.audio(audio_out, format="audio/mp3")
+    if st.session_state.get("last_audio") and st.button("🔊 Play Answer Audio"):
+        st.audio(st.session_state["last_audio"], format="audio/mp3")
 
 st.markdown("---")
 st.caption("Demo: text or voice Q&A with optional context from your uploads/notes.")
