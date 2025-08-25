@@ -1,6 +1,7 @@
 import os
 import io
 import time
+import base64
 
 import streamlit as st
 
@@ -181,7 +182,15 @@ question = st.text_input(
 )
 
 if recorded_audio and not question.strip():
-    question = transcribe_audio(client, io.BytesIO(recorded_audio))
+    if isinstance(recorded_audio, dict):
+        audio_bytes = recorded_audio["bytes"]
+        fmt = recorded_audio.get("format", "wav")
+    else:
+        audio_bytes = base64.b64decode(recorded_audio.split(",")[-1])
+        fmt = "wav"
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = f"question.{fmt}"
+    question = transcribe_audio(client, audio_file)
     if question:
         st.markdown(f"**Transcribed question:** {question}")
 elif audio_question is not None and not question.strip():
