@@ -88,9 +88,9 @@ def ask_llm_stream(
             stream=True,
         )
         for chunk in stream:
-            delta = chunk.choices[0].delta
-            if delta and (content := delta.get("content")):
-                text += content
+            piece = getattr(chunk.choices[0].delta, "content", "")
+            if piece:
+                text += piece
                 placeholder.markdown(text)
             if getattr(chunk, "usage", None):
                 usage = chunk.usage
@@ -100,8 +100,6 @@ def ask_llm_stream(
 
     latency = time.time() - start
     placeholder.markdown(text)
-    if usage is None:
-        usage = {"prompt_tokens": 0, "completion_tokens": len(text) // 4, "estimated": True}
     return text, usage, latency
 
 
@@ -123,26 +121,24 @@ def estimate_cost(usage: Optional[Dict[str, int]], model: str) -> float:
 
 
 def text_to_speech(client: OpenAI, text: str, voice: str = "alloy") -> io.BytesIO | None:
-    """Convert text to speech and return an MP3 buffer.
+    """Convert ``text`` to speech and return a BytesIO containing MP3 audio."""
 
-    Uses streaming if available for lower latency, falling back to the standard
-    API. Returns ``None`` on failure.
-    """
+    import tempfile
 
     try:
         try:
             with client.audio.speech.with_streaming_response.create(
                 model="gpt-4o-mini-tts", voice=voice, input=text
-            ) as stream:
-                buf = io.BytesIO()
-                for chunk in stream.iter_bytes():
-                    buf.write(chunk)
-            buf.seek(0)
-            return buf
+            ) as resp:
+                with tempfile.NamedTemporaryFile(suffix=".mp3", delete=True) as tmp:
+                    resp.stream_to_file(tmp.name)
+                    bio = io.BytesIO(open(tmp.name, "rb").read())
+            bio.seek(0)
+            return bio
         except AttributeError:
-            speech = client.audio.speech.create(
+            resp = client.audio.speech.create(
                 model="gpt-4o-mini-tts", voice=voice, input=text
             )
-            return io.BytesIO(speech.content)
+            return io.BytesIO(resp.content)
     except Exception:
         return None
