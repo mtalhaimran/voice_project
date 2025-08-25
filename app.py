@@ -89,6 +89,8 @@ def ask_llm(client, model, system, user, max_tokens=400, temperature=0.3):
 
 def transcribe_audio(client, file):
     try:
+        if hasattr(file, "seek"):
+            file.seek(0)
         transcript = client.audio.transcriptions.create(
             model="gpt-4o-mini-transcribe",
             file=file,
@@ -181,9 +183,15 @@ question = st.text_input(
 )
 
 if recorded_audio and not question.strip():
-    question = transcribe_audio(client, io.BytesIO(recorded_audio))
-    if question:
-        st.markdown(f"**Transcribed question:** {question}")
+    audio_bytes = (
+        recorded_audio.get("bytes") if isinstance(recorded_audio, dict) else recorded_audio
+    )
+    if audio_bytes:
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "input.wav"
+        question = transcribe_audio(client, audio_file)
+        if question:
+            st.markdown(f"**Transcribed question:** {question}")
 elif audio_question is not None and not question.strip():
     question = transcribe_audio(client, audio_question)
     if question:
@@ -197,7 +205,7 @@ with col2:
 
 if clear:
     st.session_state.pop("last_answer", None)
-    st.experimental_rerun()
+    st.rerun()
 
 answer_box = st.empty()
 st.session_state.setdefault("last_answer", "")
