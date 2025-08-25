@@ -18,7 +18,7 @@ Provide your OpenAI API key in the sidebar when prompted.
 
 ### Voice features
 
-You can ask questions by recording your voice directly in the browser or by uploading an audio file (`.wav`, `.mp3`, `.m4a`). The app transcribes your voice with OpenAI's speech-to-text and replies with both text and an audio answer.
+You can ask questions by recording your voice directly in the browser. The app transcribes your voice with OpenAI's speech-to-text and replies with both text and an audio answer.
 
 After an answer appears, use the **🔊 Play Answer Audio** button to listen to the response.
 
