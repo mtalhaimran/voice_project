@@ -34,10 +34,18 @@ def cosine_sim(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.dot(b_norm, a_norm)
 
 
-def retrieve_context(client: OpenAI, kb_chunks: List[str], kb_embeds: np.ndarray, query: str, top_k: int = 3) -> str:
+def retrieve_context(
+    client: OpenAI,
+    kb_chunks: List[str],
+    kb_embeds: np.ndarray,
+    query: str,
+    top_k: int = 3,
+) -> str:
     """Retrieve top-k similar chunks for a query."""
-    if not kb_chunks:
+
+    if not kb_chunks or kb_embeds is None or len(kb_embeds) == 0:
         return ""
+
     q_vec = embed_texts(client, [query])[0]
     sims = cosine_sim(q_vec, kb_embeds)
     idx = np.argsort(-sims)[:top_k]
