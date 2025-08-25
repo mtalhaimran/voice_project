@@ -32,23 +32,11 @@ def process_audio_question(
     top_k,
     placeholder=None,
 ):
-    """Handle audio normalization, transcription, LLM call and TTS.
+    """Handle LLM call and TTS.
 
-    Returns the (possibly transcribed) question, answer text, synthesized audio,
+    Returns the question, answer text, synthesized audio,
     and metadata about the call (latency/cost).
     """
-    audio_bytes: bytes | None = None
-    fmt, sample_width = "wav", 2
-
-    if recorded_audio:
-        audio_bytes, fmt, sample_width = audio_bytes_from_input(recorded_audio)
-    elif uploaded_audio is not None:
-        audio_bytes = uploaded_audio.read()
-        fmt = uploaded_audio.name.split(".")[-1]
-
-    if audio_bytes and not question.strip():
-        cache = st.session_state.setdefault("transcription_cache", {})
-        question = transcribe_cached(client, audio_bytes, fmt, cache)
 
     if not question.strip():
         return question, "", None, {}
@@ -153,14 +141,26 @@ else:
     recorded_audio = None
     st.info("streamlit-mic-recorder not installed. Upload an audio file instead.")
 
+if recorded_audio:
+    audio_id = recorded_audio.get("id")
+    if st.session_state.get("_last_mic_recorder_audio_id") != audio_id:
+        st.session_state["_last_mic_recorder_audio_id"] = audio_id
+        if not st.session_state.get("question_text", "").strip():
+            audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
+            cache = st.session_state.setdefault("transcription_cache", {})
+            st.session_state["question_text"] = transcribe_cached(
+                client, audio_bytes, fmt, cache
+            )
+            st.experimental_rerun()
+
 uploaded_audio = st.file_uploader("Upload audio", type=["wav", "mp3", "m4a"])
 
 question = st.text_input(
-    "Your question", placeholder="e.g., Explain photosynthesis in simple steps."
+    "Your question", placeholder="e.g., Explain photosynthesis in simple steps.", key="question_text"
 )
 
 if recorded_audio and st.button("Re-record"):
-    for k in ["recorder_output", "_last_mic_recorder_audio_id"]:
+    for k in ["recorder_output", "_last_mic_recorder_audio_id", "question_text"]:
         st.session_state.pop(k, None)
     st.experimental_rerun()
 
