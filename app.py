@@ -12,10 +12,60 @@ from utils_io import (
     read_pdf,
     read_txt,
     audio_bytes_from_input,
-    compute_mic_level,
 )
 from utils_rag import chunk_text, embed_texts, retrieve_context
 from utils_ai import transcribe_cached, ask_llm, text_to_speech, estimate_cost
+
+def process_audio_question(
+    client,
+    recorded_audio,
+    uploaded_audio,
+    question,
+    model,
+    system_prompt,
+    kb_chunks,
+    kb_embeds,
+    top_k,
+):
+    """Handle audio normalization, transcription, LLM call and TTS.
+
+    Returns the (possibly transcribed) question, answer text, synthesized audio,
+    and metadata about the call (latency/cost).
+    """
+    audio_bytes: bytes | None = None
+    fmt, sample_width = "wav", 2
+
+    if recorded_audio:
+        audio_bytes, fmt, sample_width = audio_bytes_from_input(recorded_audio)
+    elif uploaded_audio is not None:
+        audio_bytes = uploaded_audio.read()
+        fmt = uploaded_audio.name.split(".")[-1]
+
+    if audio_bytes and not question.strip():
+        cache = st.session_state.setdefault("transcription_cache", {})
+        question = transcribe_cached(client, audio_bytes, fmt, cache)
+
+    if not question.strip():
+        return question, "", None, {}
+
+    context = ""
+    if kb_chunks and kb_embeds is not None:
+        context = retrieve_context(client, kb_chunks, kb_embeds, question, top_k=top_k)
+
+    user_prompt = (
+        f"Answer the question using the context if relevant.\n\n"
+        f"---\nContext:\n{context}\n---\n\nQuestion: {question}"
+        if context
+        else f"Question: {question}"
+    )
+
+    answer, usage, latency = ask_llm(
+        client, model=model, system=system_prompt, user=user_prompt
+    )
+    audio_out = text_to_speech(client, answer)
+    meta = {"latency": latency, "cost": estimate_cost(usage, model)}
+
+    return question, answer, audio_out, meta
 
 # ---------- Config ----------
 st.set_page_config(page_title="Edu Voice MVP (Text Demo)", page_icon="🎓", layout="centered")
@@ -90,27 +140,10 @@ question = st.text_input(
     "Your question", placeholder="e.g., Explain photosynthesis in simple steps."
 )
 
-audio_bytes: bytes | None = None
-fmt, sample_width = "wav", 2
-if recorded_audio:
-    audio_bytes, fmt, sample_width = audio_bytes_from_input(recorded_audio)
-    level = compute_mic_level(audio_bytes, sample_width)
-    st.progress(int(max(0.0, min(level, 1.0)) * 100))
-    if st.button("Re-record"):
-        for k in ["recorder_output", "_last_mic_recorder_audio_id"]:
-            st.session_state.pop(k, None)
-        st.experimental_rerun()
-elif uploaded_audio is not None:
-    audio_bytes = uploaded_audio.read()
-    fmt = uploaded_audio.name.split(".")[-1]
-
-if audio_bytes and not question.strip():
-    cache = st.session_state.setdefault("transcription_cache", {})
-    question = transcribe_cached(client, audio_bytes, fmt, cache)
-    if question:
-        question_box.markdown(f"**Question:** {question}")
-    else:
-        st.error("Transcription failed.")
+if recorded_audio and st.button("Re-record"):
+    for k in ["recorder_output", "_last_mic_recorder_audio_id"]:
+        st.session_state.pop(k, None)
+    st.experimental_rerun()
 
 col1, col2 = st.columns([1,1])
 with col1:
@@ -139,39 +172,31 @@ tone_map = {
 system_prompt = tone_map[tone]
 
 if go:
-    if not question.strip():
-        st.warning("Please enter a question.")
-    else:
-        context = ""
-        if kb_chunks and kb_embeds is not None:
-            context = retrieve_context(client, kb_chunks, kb_embeds, question, top_k=top_k)
-
-        user_prompt = (
-            f"Answer the question using the context if relevant.\n\n"
-            f"---\nContext:\n{context}\n---\n\nQuestion: {question}"
-            if context
-            else f"Question: {question}"
+    try:
+        q, answer, audio_out, meta = process_audio_question(
+            client,
+            recorded_audio,
+            uploaded_audio,
+            question,
+            model,
+            system_prompt,
+            kb_chunks,
+            kb_embeds,
+            top_k,
         )
-
-        try:
-            answer, usage, latency = ask_llm(
-                client, model=model, system=system_prompt, user=user_prompt
-            )
-            st.session_state["last_question"] = question
+        if not q.strip():
+            st.warning("Please enter a question.")
+        else:
+            st.session_state["last_question"] = q
             st.session_state["last_answer"] = answer
-            st.session_state["last_meta"] = {
-                "latency": latency,
-                "cost": estimate_cost(usage, model),
-            }
-            question_box.markdown(f"**Question:** {question}")
+            st.session_state["last_meta"] = meta
+            st.session_state["last_audio"] = audio_out
+            question_box.markdown(f"**Question:** {q}")
             answer_box.markdown(answer)
-            audio_out = text_to_speech(client, answer)
-            if audio_out:
-                st.session_state["last_audio"] = audio_out
-            else:
+            if not audio_out:
                 st.error("TTS failed.")
-        except Exception as e:
-            st.error(f"LLM error: {e}")
+    except Exception as e:
+        st.error(f"Processing error: {e}")
 
 if st.session_state.get("last_answer"):
     question_box.markdown(f"**Question:** {st.session_state.get('last_question', '')}")
