@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import io
+import wave
 from typing import Tuple, Union
 
 import numpy as np
@@ -52,9 +53,24 @@ def audio_bytes_from_input(recorded_audio: Union[dict, str]) -> Tuple[bytes, str
 
 
 def compute_mic_level(audio_bytes: bytes, sample_width: int = 2) -> float:
-    """Return a 0-1 mic level estimation using RMS amplitude."""
+    """Return a 0-1 mic level estimation using RMS amplitude.
+
+    The function accepts either raw PCM bytes or an entire WAV file. When
+    WAV-formatted data is provided, the PCM frames and sample width are
+    extracted from the container before computing the RMS.
+    """
+    if audio_bytes[:4] == b"RIFF":
+        with wave.open(io.BytesIO(audio_bytes)) as wf:
+            sample_width = wf.getsampwidth()
+            frames = wf.readframes(wf.getnframes())
+    else:
+        frames = audio_bytes
+
     dtype = np.int16 if sample_width == 2 else np.int8
-    data = np.frombuffer(audio_bytes, dtype=dtype)
+    itemsize = np.dtype(dtype).itemsize
+    usable_len = len(frames) - (len(frames) % itemsize)
+    frames = frames[:usable_len]
+    data = np.frombuffer(frames, dtype=dtype)
     if data.size == 0:
         return 0.0
     rms = float(np.sqrt(np.mean(np.square(data, dtype=np.float64))))
