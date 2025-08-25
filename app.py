@@ -1,6 +1,7 @@
 import os
 import io
 import time
+import base64
 
 import streamlit as st
 
@@ -171,6 +172,20 @@ recorded_audio = mic_recorder(
     key="recorder",
 )
 
+# Decode and prepare recorded audio
+audio_file = None
+if recorded_audio:
+    try:
+        if isinstance(recorded_audio, str):
+            if "," in recorded_audio:
+                recorded_audio = recorded_audio.split(",", 1)[1]
+            recorded_audio = base64.b64decode(recorded_audio)
+        audio_file = io.BytesIO(recorded_audio)
+        audio_file.name = "question.wav"
+    except Exception as e:
+        st.error(f"Failed to process recording: {e}")
+        recorded_audio = None
+
 # Fallback to uploading an audio file
 audio_question = st.file_uploader(
     "Or ask with voice (.wav, .mp3, .m4a)", type=["wav", "mp3", "m4a"]
@@ -180,8 +195,8 @@ question = st.text_input(
     "Your question", placeholder="e.g., Explain photosynthesis in simple steps."
 )
 
-if recorded_audio and not question.strip():
-    question = transcribe_audio(client, io.BytesIO(recorded_audio))
+if audio_file and not question.strip():
+    question = transcribe_audio(client, audio_file)
     if question:
         st.markdown(f"**Transcribed question:** {question}")
 elif audio_question is not None and not question.strip():
