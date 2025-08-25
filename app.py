@@ -3,7 +3,9 @@ import streamlit as st
 try:
     from openai import OpenAI
 except ModuleNotFoundError as e:
-    st.error(f"Missing dependency: {e.name}. Please install requirements with `pip install -r requirements.txt`.")
+    st.error(
+        f"Missing dependency: {e.name}. Please install requirements with `pip install -r requirements.txt`."
+    )
     st.stop()
 
 try:
@@ -51,18 +53,22 @@ def process_audio_question(
     )
 
     if placeholder is not None:
-        answer, usage, latency = ask_llm_stream(
-            client,
-            model=model,
-            system=system_prompt,
-            user=user_prompt,
-            placeholder=placeholder,
-        )
+        with st.spinner("Thinking..."):
+            answer, usage, latency = ask_llm_stream(
+                client,
+                model=model,
+                system=system_prompt,
+                user=user_prompt,
+                placeholder=placeholder,
+            )
     else:
-        answer, usage, latency = ask_llm(
-            client, model=model, system=system_prompt, user=user_prompt
-        )
-    audio_out = text_to_speech(client, answer)
+        with st.spinner("Thinking..."):
+            answer, usage, latency = ask_llm(
+                client, model=model, system=system_prompt, user=user_prompt
+            )
+
+    with st.spinner("Generating audio..."):
+        audio_out = text_to_speech(client, answer)
     meta = {"latency": latency, "cost": estimate_cost(usage, model)}
 
     return question, answer, audio_out, meta
@@ -91,10 +97,10 @@ with st.sidebar:
 
 api_key = get_api_key()
 if not api_key:
-    st.warning("Add your OpenAI API key in the sidebar (or set OPENAI_API_KEY env var) to begin.")
-    st.stop()
-
-client = OpenAI(api_key=api_key)
+    st.warning(
+        "Add your OpenAI API key in the sidebar (or set OPENAI_API_KEY env var) to begin."
+    )
+client = OpenAI(api_key=api_key) if api_key else None
 
 # Build knowledge base (KB)
 kb_texts = []
@@ -115,17 +121,19 @@ kb_chunks, kb_embeds = [], None
 
 if kb_text:
     kb_chunks = chunk_text(kb_text)
-    try:
-        kb_embeds = embed_texts(client, kb_chunks)
-    except Exception as e:
-        st.error(f"Embedding error: {e}")
-        kb_chunks = []
-        kb_embeds = None
+    if client:
+        try:
+            kb_embeds = embed_texts(client, kb_chunks)
+        except Exception as e:
+            st.error(f"Embedding error: {e}")
+            kb_chunks = []
+            kb_embeds = None
 
 # Chat area
 st.markdown("### Ask a question")
 
 question_box = st.empty()
+transcript_box = st.empty()
 
 # Record audio directly in the browser if supported
 if mic_recorder:
@@ -143,21 +151,48 @@ if recorded_audio:
     audio_id = recorded_audio.get("id")
     if st.session_state.get("_last_mic_recorder_audio_id") != audio_id:
         st.session_state["_last_mic_recorder_audio_id"] = audio_id
-        if not st.session_state.get("question_text", "").strip():
-            audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
-            cache = st.session_state.setdefault("transcription_cache", {})
-            st.session_state["question_text"] = transcribe_cached(
-                client, audio_bytes, fmt, cache
-            )
-            st.rerun()
+        audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
+        st.session_state["last_mic_audio_bytes"] = audio_bytes
+        st.session_state["last_mic_audio_fmt"] = fmt
+        cache = st.session_state.setdefault("transcription_cache", {})
+        if client:
+            with st.spinner("Transcribing..."):
+                try:
+                    st.session_state["question_text"] = transcribe_cached(
+                        client, audio_bytes, fmt, cache
+                    )
+                except Exception as e:
+                    st.error(f"Transcription error: {e}")
+        else:
+            st.error("API key required for transcription.")
+        st.rerun()
+
+if st.session_state.get("last_mic_audio_bytes"):
+    st.audio(
+        st.session_state["last_mic_audio_bytes"],
+        format=f"audio/{st.session_state.get('last_mic_audio_fmt', 'wav')}",
+    )
+    if st.session_state.get("question_text"):
+        transcript_box.markdown(
+            f"**Transcription:** {st.session_state.get('question_text', '')}"
+        )
 
 question = st.text_input(
-    "Your question", placeholder="e.g., Explain photosynthesis in simple steps.", key="question_text"
+    "Your question",
+    placeholder="e.g., Explain photosynthesis in simple steps.",
+    key="question_text",
 )
 
-if recorded_audio and st.button("Re-record"):
-    for k in ["recorder_output", "_last_mic_recorder_audio_id", "question_text"]:
+if st.session_state.get("last_mic_audio_bytes") and st.button("Re-record"):
+    for k in [
+        "recorder_output",
+        "_last_mic_recorder_audio_id",
+        "question_text",
+        "last_mic_audio_bytes",
+        "last_mic_audio_fmt",
+    ]:
         st.session_state.pop(k, None)
+    st.session_state.get("transcription_cache", {}).clear()
     st.rerun()
 
 col1, col2 = st.columns([1,1])
@@ -187,29 +222,32 @@ tone_map = {
 system_prompt = tone_map[tone]
 
 if go:
-    try:
-        q, answer, audio_out, meta = process_audio_question(
-            client,
-            question,
-            model,
-            system_prompt,
-            kb_chunks,
-            kb_embeds,
-            top_k,
-            answer_box,
-        )
-        if not q.strip():
-            st.warning("Please enter a question.")
-        else:
-            st.session_state["last_question"] = q
-            st.session_state["last_answer"] = answer
-            st.session_state["last_meta"] = meta
-            st.session_state["last_audio"] = audio_out
-            question_box.markdown(f"**Question:** {q}")
-            if not audio_out:
-                st.error("TTS failed.")
-    except Exception as e:
-        st.error(f"Processing error: {e}")
+    if not client:
+        st.error("API key required for LLM call.")
+    else:
+        try:
+            q, answer, audio_out, meta = process_audio_question(
+                client,
+                question,
+                model,
+                system_prompt,
+                kb_chunks,
+                kb_embeds,
+                top_k,
+                answer_box,
+            )
+            if not q.strip():
+                st.warning("Please enter a question.")
+            else:
+                st.session_state["last_question"] = q
+                st.session_state["last_answer"] = answer
+                st.session_state["last_meta"] = meta
+                st.session_state["last_audio"] = audio_out
+                question_box.markdown(f"**Question:** {q}")
+                if not audio_out:
+                    st.error("TTS failed.")
+        except Exception as e:
+            st.error(f"Processing error: {e}")
 
 if st.session_state.get("last_answer"):
     question_box.markdown(f"**Question:** {st.session_state.get('last_question', '')}")

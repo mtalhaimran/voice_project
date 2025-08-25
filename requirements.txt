@@ -2,4 +2,4 @@ streamlit
 streamlit-mic-recorder
 numpy
 pypdf
-openai
+openai>=1.30.0

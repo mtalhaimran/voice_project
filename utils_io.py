@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 import io
 import wave
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 from pypdf import PdfReader
@@ -32,24 +32,31 @@ def read_pdf(file: io.BytesIO) -> str:
     return "\n".join(parts)
 
 
-def audio_bytes_from_input(recorded_audio: Union[dict, str]) -> Tuple[bytes, str, int]:
-    """Normalize recorder output to raw bytes, format, and sample width.
+def audio_bytes_from_input(recorded_audio: Union[dict, str]) -> Tuple[bytes, str, Optional[int]]:
+    """Normalize audio input to raw bytes, format, and sample rate.
 
-    Args:
-        recorded_audio: The object returned by ``mic_recorder``. It may be a
-            dictionary or a base64 string depending on the environment.
-
-    Returns:
-        A tuple ``(audio_bytes, fmt, sample_width)``.
+    ``streamlit_mic_recorder`` can return either a dictionary with metadata or a
+    raw base64 string depending on the browser.  This helper converts either
+    form into a tuple of ``(audio_bytes, format, sample_rate)``.
     """
+
     if isinstance(recorded_audio, dict):
-        return (
-            recorded_audio["bytes"],
-            recorded_audio.get("format", "wav"),
-            recorded_audio.get("sample_width", 2),
-        )
-    audio_bytes = base64.b64decode(recorded_audio.split(",")[-1])
-    return audio_bytes, "wav", 2
+        data = recorded_audio.get("bytes") or recorded_audio.get("blob")
+        fmt = recorded_audio.get("format") or recorded_audio.get("type") or "wav"
+        if fmt.startswith("audio/"):
+            fmt = fmt.split("/", 1)[-1]
+        sample_rate = recorded_audio.get("sample_rate")
+        return data, fmt, sample_rate
+
+    if isinstance(recorded_audio, str):
+        header, b64data = (recorded_audio.split(",", 1) + [""])[0:2]
+        fmt = "wav"
+        if "audio/" in header:
+            fmt = header.split("audio/")[-1].split(";")[0]
+        audio_bytes = base64.b64decode(b64data)
+        return audio_bytes, fmt, None
+
+    raise TypeError("Unsupported audio input type")
 
 
 def compute_mic_level(audio_bytes: bytes, sample_width: int = 2) -> float:
