@@ -14,7 +14,7 @@ from utils_io import (
     audio_bytes_from_input,
 )
 from utils_rag import chunk_text, embed_texts, retrieve_context
-from utils_ai import transcribe_cached, ask_llm, text_to_speech, estimate_cost
+from utils_ai import transcribe_cached, ask_llm, ask_llm_stream, text_to_speech, estimate_cost
 
 def process_audio_question(
     client,
@@ -26,6 +26,7 @@ def process_audio_question(
     kb_chunks,
     kb_embeds,
     top_k,
+    placeholder=None,
 ):
     """Handle audio normalization, transcription, LLM call and TTS.
 
@@ -59,9 +60,18 @@ def process_audio_question(
         else f"Question: {question}"
     )
 
-    answer, usage, latency = ask_llm(
-        client, model=model, system=system_prompt, user=user_prompt
-    )
+    if placeholder is not None:
+        answer, usage, latency = ask_llm_stream(
+            client,
+            model=model,
+            system=system_prompt,
+            user=user_prompt,
+            placeholder=placeholder,
+        )
+    else:
+        answer, usage, latency = ask_llm(
+            client, model=model, system=system_prompt, user=user_prompt
+        )
     audio_out = text_to_speech(client, answer)
     meta = {"latency": latency, "cost": estimate_cost(usage, model)}
 
@@ -183,6 +193,7 @@ if go:
             kb_chunks,
             kb_embeds,
             top_k,
+            answer_box,
         )
         if not q.strip():
             st.warning("Please enter a question.")
@@ -192,7 +203,6 @@ if go:
             st.session_state["last_meta"] = meta
             st.session_state["last_audio"] = audio_out
             question_box.markdown(f"**Question:** {q}")
-            answer_box.markdown(answer)
             if not audio_out:
                 st.error("TTS failed.")
     except Exception as e:

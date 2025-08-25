@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import time
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 from openai import OpenAI
 
@@ -50,6 +50,38 @@ def ask_llm(client: OpenAI, model: str, system: str, user: str, max_tokens: int 
     latency = time.time() - start
     text = resp.choices[0].message["content"]
     return text, resp.usage, latency
+
+
+def ask_llm_stream(
+    client: OpenAI,
+    model: str,
+    system: str,
+    user: str,
+    placeholder: Any,
+    max_tokens: int = 400,
+    temperature: float = 0.3,
+) -> Tuple[str, Dict[str, int], float]:
+    """Stream LLM output, updating the given placeholder."""
+    start = time.time()
+    stream = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+    )
+    text = ""
+    usage: Dict[str, int] = {}
+    for chunk in stream:
+        delta = chunk.choices[0].delta
+        if delta and (content := delta.get("content")):
+            text += content
+            placeholder.markdown(text)
+        if getattr(chunk, "usage", None):
+            usage = chunk.usage
+    latency = time.time() - start
+    placeholder.markdown(text)
+    return text, usage, latency
 
 
 def estimate_cost(usage: Dict[str, int], model: str) -> float:
