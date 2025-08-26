@@ -81,7 +81,8 @@ def ask_llm_stream(
             stream=True,
         )
         for chunk in stream:
-            piece = getattr(chunk.choices[0].delta, "content", "")
+            delta = chunk.choices[0].delta
+            piece = delta.get("content", "") if isinstance(delta, dict) else getattr(delta, "content", "")
             if piece:
                 text += piece
                 placeholder.markdown(text)
