@@ -148,11 +148,13 @@ else:
     st.info("streamlit-mic-recorder not installed. Voice recording unavailable.")
 
 if recorded_audio:
-    st.session_state["last_recorded_audio"] = recorded_audio
-    audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
-    st.session_state["last_mic_audio_bytes"] = audio_bytes
-    st.session_state["last_mic_audio_fmt"] = fmt
-    st.session_state.pop("question_text", None)
+    last_audio = st.session_state.get("last_recorded_audio")
+    if recorded_audio != last_audio:
+        st.session_state["last_recorded_audio"] = recorded_audio
+        audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
+        st.session_state["last_mic_audio_bytes"] = audio_bytes
+        st.session_state["last_mic_audio_fmt"] = fmt
+        st.session_state.pop("question_text", None)
 
 if st.session_state.get("last_mic_audio_bytes"):
     bytes_ = st.session_state["last_mic_audio_bytes"]
