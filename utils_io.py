@@ -36,15 +36,42 @@ def audio_bytes_from_input(recorded_audio: Union[dict, str]) -> Tuple[bytes, str
     """Normalize audio input to raw bytes, format, and sample rate.
 
     ``streamlit_mic_recorder`` can return either a dictionary with metadata or a
-    raw base64 string depending on the browser.  This helper converts either
-    form into a tuple of ``(audio_bytes, format, sample_rate)``.
+    raw base64 string depending on the browser. This helper converts either form
+    into a tuple of ``(audio_bytes, format, sample_rate)`` and normalizes common
+    MIME-style format strings (e.g., ``"audio/wav"`` -> ``"wav"``).
     """
 
-    if isinstance(recorded_audio, dict):
-        data = recorded_audio.get("bytes") or recorded_audio.get("blob")
-        fmt = recorded_audio.get("format") or recorded_audio.get("type") or "wav"
+    def _norm_fmt(fmt: str) -> str:
+        if not fmt:
+            return "wav"
+        fmt = fmt.lower()
         if fmt.startswith("audio/"):
             fmt = fmt.split("/", 1)[-1]
+        fmt = fmt.split(";")[0]
+        if fmt in ("x-wav", "wave"):
+            fmt = "wav"
+        return fmt or "wav"
+
+    if isinstance(recorded_audio, dict):
+        data = (
+            recorded_audio.get("bytes")
+            or recorded_audio.get("blob")
+            or recorded_audio.get("audio")
+        )
+        if hasattr(data, "read"):
+            data = data.read()
+        if data is None and recorded_audio.get("file") is not None:
+            file_obj = recorded_audio["file"]
+            try:
+                file_obj.seek(0)
+                data = file_obj.read()
+            except Exception:
+                data = None
+        fmt = _norm_fmt(
+            recorded_audio.get("format")
+            or recorded_audio.get("type")
+            or "wav"
+        )
         if isinstance(data, str):
             audio_bytes = base64.b64decode(data)
         else:
@@ -54,9 +81,7 @@ def audio_bytes_from_input(recorded_audio: Union[dict, str]) -> Tuple[bytes, str
 
     if isinstance(recorded_audio, str):
         header, b64data = (recorded_audio.split(",", 1) + [""])[0:2]
-        fmt = "wav"
-        if "audio/" in header:
-            fmt = header.split("audio/")[-1].split(";")[0]
+        fmt = _norm_fmt("audio/" + header.split("audio/")[-1].split(";")[0] if "audio/" in header else "wav")
         audio_bytes = base64.b64decode(b64data)
         return audio_bytes, fmt, None
 

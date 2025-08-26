@@ -148,41 +148,38 @@ else:
     st.info("streamlit-mic-recorder not installed. Voice recording unavailable.")
 
 if recorded_audio:
-    if isinstance(recorded_audio, dict):
-        audio_id = recorded_audio.get("id")
-    else:
-        audio_id = recorded_audio
-    if st.session_state.get("_last_mic_recorder_audio_id") != audio_id:
-        st.session_state["_last_mic_recorder_audio_id"] = audio_id
-        audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
-        st.session_state["last_mic_audio_bytes"] = audio_bytes
-        st.session_state["last_mic_audio_fmt"] = fmt
-        st.session_state.pop("question_text", None)
-        st.rerun()
+    st.session_state["last_recorded_audio"] = recorded_audio
+    audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
+    st.session_state["last_mic_audio_bytes"] = audio_bytes
+    st.session_state["last_mic_audio_fmt"] = fmt
+    st.session_state.pop("question_text", None)
 
 if st.session_state.get("last_mic_audio_bytes"):
     bytes_ = st.session_state["last_mic_audio_bytes"]
     fmt = st.session_state.get("last_mic_audio_fmt", "wav")
     st.audio(bytes_, format=f"audio/{fmt}")
     st.caption(f"Recorded audio: {len(bytes_)} bytes ({fmt})")
+    if client and st.button("📝 Transcribe voice"):
+        recorded_audio = st.session_state.get("last_recorded_audio")
+        if recorded_audio is not None:
+            cache = st.session_state.setdefault("transcription_cache", {})
+            with st.spinner("Transcribing..."):
+                try:
+                    audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
+                    text = transcribe_cached(client, audio_bytes, fmt, cache)
+                except Exception as e:
+                    st.error(str(e))
+                else:
+                    st.session_state["question_text"] = text
+                    transcript_box.markdown(f"**Transcription:** {text}")
+    elif not client:
+        st.error("API key required for transcription.")
     if st.session_state.get("question_text"):
         transcript_box.markdown(
             f"**Transcription:** {st.session_state.get('question_text', '')}"
         )
-    else:
-        if client:
-            if st.button("📝 Transcribe voice"):
-                cache = st.session_state.setdefault("transcription_cache", {})
-                with st.spinner("Transcribing..."):
-                    try:
-                        text = transcribe_cached(client, bytes_, fmt, cache)
-                    except Exception as e:
-                        st.error(str(e))
-                    else:
-                        st.session_state["question_text"] = text
-                        transcript_box.markdown(f"**Transcription:** {text}")
-        else:
-            st.error("API key required for transcription.")
+else:
+    st.session_state.pop("last_recorded_audio", None)
 
 question = st.text_input(
     "Your question",
@@ -193,10 +190,10 @@ question = st.text_input(
 if st.session_state.get("last_mic_audio_bytes") and st.button("Re-record"):
     for k in [
         "recorder_output",
-        "_last_mic_recorder_audio_id",
         "question_text",
         "last_mic_audio_bytes",
         "last_mic_audio_fmt",
+        "last_recorded_audio",
     ]:
         st.session_state.pop(k, None)
     st.session_state.get("transcription_cache", {}).clear()
