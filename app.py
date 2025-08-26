@@ -231,20 +231,20 @@ if go:
     if not client:
         st.error("API key required for LLM call.")
     else:
-        try:
-            q, answer, audio_out, meta = process_audio_question(
-                client,
-                question,
-                model,
-                system_prompt,
-                kb_chunks,
-                kb_embeds,
-                top_k,
-                answer_box,
-            )
-            if not q.strip():
-                st.warning("Please enter a question.")
-            else:
+        if not question.strip():
+            st.warning("Please enter a question.")
+        else:
+            try:
+                q, answer, audio_out, meta = process_audio_question(
+                    client,
+                    question,
+                    model,
+                    system_prompt,
+                    kb_chunks,
+                    kb_embeds,
+                    top_k,
+                    answer_box,
+                )
                 st.session_state["last_question"] = q
                 st.session_state["last_answer"] = answer
                 st.session_state["last_meta"] = meta
@@ -252,8 +252,8 @@ if go:
                 question_box.markdown(f"**Question:** {q}")
                 if not audio_out:
                     st.error("TTS failed.")
-        except Exception as e:
-            st.error(f"Processing error: {e}")
+            except Exception as e:
+                st.error(f"Processing error: {e}")
 
 if st.session_state.get("last_answer"):
     question_box.markdown(f"**Question:** {st.session_state.get('last_question', '')}")
