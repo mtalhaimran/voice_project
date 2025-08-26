@@ -58,6 +58,15 @@ def audio_bytes_from_input(recorded_audio: Union[dict, str]) -> Tuple[bytes, str
             or recorded_audio.get("blob")
             or recorded_audio.get("audio")
         )
+        if hasattr(data, "read"):
+            data = data.read()
+        if data is None and recorded_audio.get("file") is not None:
+            file_obj = recorded_audio["file"]
+            try:
+                file_obj.seek(0)
+                data = file_obj.read()
+            except Exception:
+                data = None
         fmt = _norm_fmt(
             recorded_audio.get("format")
             or recorded_audio.get("type")

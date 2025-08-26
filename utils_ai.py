@@ -20,25 +20,18 @@ def transcribe_cached(
     """Transcribe audio bytes with caching.
 
     The bytes are hashed with SHA-256.  If the hash exists in ``cache`` the
-    cached transcription is returned.  Otherwise the bytes are written to a
-    temporary file (with the appropriate extension) and sent to Whisper.
+    cached transcription is returned.  Otherwise the bytes are sent to Whisper
+    using an in-memory file-like object.
     """
 
     key = hashlib.sha256(audio_bytes).hexdigest()
     if key in cache:
         return cache[key]
 
-    import tempfile
-
-    suffix = f".{fmt}" if fmt else ""
     try:
-        with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
-            tmp.write(audio_bytes)
-            tmp.flush()
-            tmp.seek(0)
-            resp = client.audio.transcriptions.create(
-                model="whisper-1", file=tmp
-            )
+        bio = io.BytesIO(audio_bytes)
+        bio.name = f"audio.{fmt}" if fmt else "audio.wav"
+        resp = client.audio.transcriptions.create(model="whisper-1", file=bio)
     except Exception as e:
         raise RuntimeError(f"Transcription error: {e}") from e
 
