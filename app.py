@@ -162,11 +162,13 @@ if mic_recorder and recorder_supported:
         use_container_width=True,
         key="recorder",
         format=REC_FORMAT,
-        just_once=True,
+        just_once=False,
     )
+    rec_key = st.session_state.setdefault("recorder_key", 0)
     ios_audio = st.audio_input(
         "📱 iOS fallback recorder (WAV)",
         help="Use this if the mic button gets stuck on iOS/Safari.",
+        key=f"ios_recorder_{rec_key}",
     )
     if ios_audio is not None:
         ios_bytes = ios_audio.getvalue()
@@ -288,15 +290,18 @@ question = st.text_input(
 )
 
 if st.session_state.get("last_mic_audio_bytes") and st.button("Re-record"):
+    current_key = st.session_state.get("recorder_key", 0)
     for k in [
         "recorder_output",
         "question_text",
         "last_mic_audio_bytes",
         "last_mic_audio_fmt",
         "last_recorded_audio",
+        f"ios_recorder_{current_key}",
     ]:
         st.session_state.pop(k, None)
     st.session_state.get("transcription_cache", {}).clear()
+    st.session_state["recorder_key"] = current_key + 1
     st.rerun()
 
 col1, col2 = st.columns([1,1])
