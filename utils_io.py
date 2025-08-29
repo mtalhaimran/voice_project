@@ -50,7 +50,7 @@ def audio_bytes_from_input(recorded_audio: Union[dict, str]) -> Tuple[bytes, str
         fmt = fmt.split(";")[0]
         if fmt in ("x-wav", "wave"):
             fmt = "wav"
-        if fmt in ("aac", "m4a", "x-m4a"):
+        if fmt in ("aac", "m4a", "x-m4a", "mp4", "mp4a", "mpg4"):
             fmt = "m4a"
         return fmt or "wav"
 
