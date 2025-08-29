@@ -22,6 +22,8 @@ from utils_io import (
 from utils_rag import chunk_text, embed_texts, retrieve_context
 from utils_ai import transcribe_cached, ask_llm, ask_llm_stream, text_to_speech, estimate_cost
 
+REC_FORMAT = "wav"
+
 def process_audio_question(
     client,
     question,
@@ -158,6 +160,8 @@ if mic_recorder and recorder_supported:
         stop_prompt="Stop",
         use_container_width=True,
         key="recorder",
+        format=REC_FORMAT,
+        just_once=True,
     )
 else:
     if not recorder_supported:
@@ -229,7 +233,7 @@ if recorded_audio:
 
 if st.session_state.get("last_mic_audio_bytes"):
     bytes_ = st.session_state["last_mic_audio_bytes"]
-    fmt = st.session_state.get("last_mic_audio_fmt", "wav")
+    fmt = st.session_state.get("last_mic_audio_fmt", REC_FORMAT)
     st.audio(bytes_, format=f"audio/{fmt}")
     st.caption(f"Recorded audio: {len(bytes_)} bytes ({fmt})")
     if client and st.button("📝 Transcribe voice"):
