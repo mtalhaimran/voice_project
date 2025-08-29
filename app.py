@@ -164,13 +164,48 @@ if mic_recorder and not unsupported_browser:
         use_container_width=True,
         key="recorder",
     )
-elif mic_recorder and unsupported_browser:
+elif unsupported_browser:
     st.warning(
         "Voice recording isn't supported in this browser. "
-        "Please try a compatible browser like Chrome or upload an audio file instead."
+        "You can record below or upload an audio file instead."
     )
-    st.button("🎙️ Record Question", disabled=True)
-    recorded_audio = None
+    rec_data = st.components.v1.html(
+        """
+        <div>
+          <button id='start-rec'>🎙️ Start</button>
+          <button id='stop-rec'>Stop</button>
+        </div>
+        <script>
+        var rec, chunks=[];
+        const start=document.getElementById('start-rec');
+        const stop=document.getElementById('stop-rec');
+        start.onclick=async ()=>{
+            const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+            chunks=[];
+            rec=new MediaRecorder(stream,{mimeType:'audio/mp4'});
+            rec.ondataavailable=e=>chunks.push(e.data);
+            rec.onstop=()=>{
+                const blob=new Blob(chunks,{type:'audio/mp4'});
+                const reader=new FileReader();
+                reader.onload=()=>{Streamlit.setComponentValue({bytes:reader.result.split(',')[1],format:'audio/mp4'});};
+                reader.readAsDataURL(blob);
+            };
+            rec.start();
+        };
+        stop.onclick=()=>{if(rec && rec.state!=='inactive') rec.stop();};
+        </script>
+        """,
+        height=80,
+    )
+    uploaded_audio = st.file_uploader(
+        "Upload audio", type=["wav", "mp3", "m4a", "aac"], accept_multiple_files=False
+    )
+    if rec_data:
+        recorded_audio = rec_data
+    elif uploaded_audio is not None:
+        recorded_audio = {"file": uploaded_audio, "format": uploaded_audio.type}
+    else:
+        recorded_audio = None
 else:
     recorded_audio = None
     st.info("streamlit-mic-recorder not installed. Voice recording unavailable.")
