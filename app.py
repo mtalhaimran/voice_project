@@ -174,20 +174,36 @@ elif unsupported_browser:
         <div>
           <button id='start-rec'>🎙️ Start</button>
           <button id='stop-rec'>Stop</button>
+          <p id='rec-msg'></p>
         </div>
         <script>
-        var rec, chunks=[];
+        var rec, chunks=[], mime='';
         const start=document.getElementById('start-rec');
         const stop=document.getElementById('stop-rec');
+        const msg=document.getElementById('rec-msg');
+        if(!window.MediaRecorder){
+            msg.textContent='MediaRecorder not supported in this browser.';
+            start.disabled=true;stop.disabled=true;
+        }else{
+            if(MediaRecorder.isTypeSupported('audio/webm')) mime='audio/webm';
+            else if(MediaRecorder.isTypeSupported('audio/mp4')) mime='audio/mp4';
+            else if(MediaRecorder.isTypeSupported('audio/ogg')) mime='audio/ogg';
+            if(!mime){
+                msg.textContent='No supported audio recording format.';
+                start.disabled=true;stop.disabled=true;
+            }
+        }
         start.onclick=async ()=>{
+            if(!mime) return;
             const stream=await navigator.mediaDevices.getUserMedia({audio:true});
             chunks=[];
-            rec=new MediaRecorder(stream,{mimeType:'audio/mp4'});
+            try{rec=new MediaRecorder(stream,{mimeType:mime});}
+            catch(e){rec=new MediaRecorder(stream);} 
             rec.ondataavailable=e=>chunks.push(e.data);
             rec.onstop=()=>{
-                const blob=new Blob(chunks,{type:'audio/mp4'});
+                const blob=new Blob(chunks,{type:mime});
                 const reader=new FileReader();
-                reader.onload=()=>{Streamlit.setComponentValue({bytes:reader.result.split(',')[1],format:'audio/mp4'});};
+                reader.onload=()=>{Streamlit.setComponentValue({bytes:reader.result.split(',')[1],format:mime});};
                 reader.readAsDataURL(blob);
             };
             rec.start();
@@ -195,7 +211,7 @@ elif unsupported_browser:
         stop.onclick=()=>{if(rec && rec.state!=='inactive') rec.stop();};
         </script>
         """,
-        height=80,
+        height=120,
     )
     uploaded_audio = st.file_uploader(
         "Upload audio", type=["wav", "mp3", "m4a", "aac"], accept_multiple_files=False
