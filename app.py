@@ -154,8 +154,23 @@ if recorder_support is None:
         st.session_state["recorder_support"] = recorder_support
 recorder_supported = st.session_state.get("recorder_support", True)
 
+# Detect Safari user agent for fallback handling
+user_agent = st.session_state.get("user_agent")
+if user_agent is None:
+    user_agent = st.components.v1.html(
+        """<script>Streamlit.setComponentValue(navigator.userAgent);</script>""",
+        height=0,
+    )
+    if user_agent is not None:
+        st.session_state["user_agent"] = user_agent
+is_safari = (
+    "Safari" in st.session_state.get("user_agent", "")
+    and "Chrome" not in st.session_state.get("user_agent", "")
+)
+
 # Record audio directly in the browser if supported
-if mic_recorder and recorder_supported:
+recorded_audio = None
+if mic_recorder and recorder_supported and not is_safari:
     recorded_audio = mic_recorder(
         start_prompt="🎙️ Record Question",
         stop_prompt="Stop",
@@ -164,80 +179,84 @@ if mic_recorder and recorder_supported:
         format=REC_FORMAT,
         just_once=True,
     )
-    ios_audio = st.audio_input(
-        "📱 iOS fallback recorder (WAV)",
-        help="Use this if the mic button gets stuck on iOS/Safari.",
+else:
+    if not recorder_supported:
+        st.info("Using basic recorder due to limited browser support.")
+    elif not mic_recorder:
+        st.info("streamlit-mic-recorder not installed. Using basic recorder.")
+    elif is_safari:
+        st.info("Safari detected. Using fallback recorder.")
+
+    fallback_audio = st.audio_input(
+        "📱 Fallback recorder (WAV)",
+        help="Use this if the primary recorder fails or on Safari.",
     )
-    if ios_audio is not None:
-        ios_bytes = ios_audio.getvalue()
-        st.session_state["last_mic_audio_bytes"] = ios_bytes
+    if fallback_audio is not None:
+        fb_bytes = fallback_audio.getvalue()
+        st.session_state["last_mic_audio_bytes"] = fb_bytes
         st.session_state["last_mic_audio_fmt"] = "wav"
         st.session_state["last_recorded_audio"] = {
-            "bytes": ios_bytes,
+            "bytes": fb_bytes,
             "sample_rate": 16000,
             "sample_width": 2,
             "format": "wav",
             "id": int(time.time() * 1000),
         }
         recorded_audio = st.session_state["last_recorded_audio"]
-else:
-    if not recorder_supported:
-        st.info("Using basic recorder due to limited browser support.")
-    elif not mic_recorder:
-        st.info("streamlit-mic-recorder not installed. Using basic recorder.")
-    rec_data = st.components.v1.html(
-        """
-        <div>
-          <button id='start-rec'>🎙️ Start</button>
-          <button id='stop-rec'>Stop</button>
-          <p id='rec-msg'></p>
-        </div>
-        <script>
-        var rec, chunks=[], mime='';
-        const start=document.getElementById('start-rec');
-        const stop=document.getElementById('stop-rec');
-        const msg=document.getElementById('rec-msg');
-        if(!window.MediaRecorder){
-            msg.textContent='MediaRecorder not supported in this browser.';
-            start.disabled=true;stop.disabled=true;
-        }else{
-            if(MediaRecorder.isTypeSupported('audio/webm')) mime='audio/webm';
-            else if(MediaRecorder.isTypeSupported('audio/mp4')) mime='audio/mp4';
-            else if(MediaRecorder.isTypeSupported('audio/ogg')) mime='audio/ogg';
-            if(!mime){
-                msg.textContent='No supported audio recording format.';
-                start.disabled=true;stop.disabled=true;
-            }
-        }
-        start.onclick=async ()=>{
-            if(!mime) return;
-            const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-            chunks=[];
-            try{rec=new MediaRecorder(stream,{mimeType:mime});}
-            catch(e){rec=new MediaRecorder(stream);}
-            rec.ondataavailable=e=>chunks.push(e.data);
-            rec.onstop=()=>{
-                const blob=new Blob(chunks,{type:mime});
-                const reader=new FileReader();
-                reader.onload=()=>{Streamlit.setComponentValue({bytes:reader.result.split(',')[1],format:mime});};
-                reader.readAsDataURL(blob);
-            };
-            rec.start();
-        };
-        stop.onclick=()=>{if(rec && rec.state!=='inactive') rec.stop();};
-        </script>
-        """,
-        height=120,
-    )
-    uploaded_audio = st.file_uploader(
-        "Upload audio", type=["wav", "mp3", "m4a", "aac"], accept_multiple_files=False
-    )
-    if rec_data:
-        recorded_audio = rec_data
-    elif uploaded_audio is not None:
-        recorded_audio = {"file": uploaded_audio, "format": uploaded_audio.type}
     else:
-        recorded_audio = None
+        rec_data = st.components.v1.html(
+            """
+            <div>
+              <button id='start-rec'>🎙️ Start</button>
+              <button id='stop-rec'>Stop</button>
+              <p id='rec-msg'></p>
+            </div>
+            <script>
+            var rec, chunks=[], mime='';
+            const start=document.getElementById('start-rec');
+            const stop=document.getElementById('stop-rec');
+            const msg=document.getElementById('rec-msg');
+            if(!window.MediaRecorder){
+                msg.textContent='MediaRecorder not supported in this browser.';
+                start.disabled=true;stop.disabled=true;
+            }else{
+                if(MediaRecorder.isTypeSupported('audio/webm')) mime='audio/webm';
+                else if(MediaRecorder.isTypeSupported('audio/mp4')) mime='audio/mp4';
+                else if(MediaRecorder.isTypeSupported('audio/ogg')) mime='audio/ogg';
+                if(!mime){
+                    msg.textContent='No supported audio recording format.';
+                    start.disabled=true;stop.disabled=true;
+                }
+            }
+            start.onclick=async ()=>{
+                if(!mime) return;
+                const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+                chunks=[];
+                try{rec=new MediaRecorder(stream,{mimeType:mime});}
+                catch(e){rec=new MediaRecorder(stream);}
+                rec.ondataavailable=e=>chunks.push(e.data);
+                rec.onstop=()=>{
+                    const blob=new Blob(chunks,{type:mime});
+                    const reader=new FileReader();
+                    reader.onload=()=>{Streamlit.setComponentValue({bytes:reader.result.split(',')[1],format:mime});};
+                    reader.readAsDataURL(blob);
+                };
+                rec.start();
+            };
+            stop.onclick=()=>{if(rec && rec.state!=='inactive') rec.stop();};
+            </script>
+            """,
+            height=120,
+        )
+        uploaded_audio = st.file_uploader(
+            "Upload audio", type=["wav", "mp3", "m4a", "aac"], accept_multiple_files=False
+        )
+        if rec_data:
+            recorded_audio = rec_data
+        elif uploaded_audio is not None:
+            recorded_audio = {"file": uploaded_audio, "format": uploaded_audio.type}
+        else:
+            recorded_audio = None
 
 if recorded_audio:
     # Only process and clear the question when a new recording is captured
