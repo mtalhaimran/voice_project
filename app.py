@@ -13,8 +13,6 @@ try:
 except ModuleNotFoundError:
     mic_recorder = None
 
-from streamlit.web.server.websocket_headers import _get_websocket_headers
-
 from utils_io import (
     get_api_key,
     read_pdf,
@@ -23,17 +21,6 @@ from utils_io import (
 )
 from utils_rag import chunk_text, embed_texts, retrieve_context
 from utils_ai import transcribe_cached, ask_llm, ask_llm_stream, text_to_speech, estimate_cost
-
-
-def _get_user_agent() -> str:
-    """Return the browser's user agent string if available."""
-    headers = _get_websocket_headers()
-    return headers.get("User-Agent", "") if headers else ""
-
-
-if "user_agent" not in st.session_state:
-    # Cache the UA to avoid repeated header lookups
-    st.session_state["user_agent"] = _get_user_agent()
 
 def process_audio_question(
     client,
@@ -148,31 +135,24 @@ st.markdown("### Ask a question")
 question_box = st.empty()
 transcript_box = st.empty()
 
-# Determine whether the browser can record audio
+# Determine whether the browser supports MediaRecorder with WebM
 recorder_support = st.session_state.get("recorder_support")
 if recorder_support is None:
     recorder_support = st.components.v1.html(
         """
         <script>
-        const info = {has:false, webm:false, mime:''};
-        if(window.MediaRecorder){
-            info.has = true;
-            if(MediaRecorder.isTypeSupported('audio/webm')){info.webm = true; info.mime='audio/webm';}
-            else if(MediaRecorder.isTypeSupported('audio/mp4')){info.mime='audio/mp4';}
-            else if(MediaRecorder.isTypeSupported('audio/ogg')){info.mime='audio/ogg';}
-        }
-        Streamlit.setComponentValue(info);
+        const supported = !!window.MediaRecorder && MediaRecorder.isTypeSupported('audio/webm');
+        Streamlit.setComponentValue(supported);
         </script>
         """,
         height=0,
     )
     if recorder_support is not None:
         st.session_state["recorder_support"] = recorder_support
-support_info = st.session_state.get("recorder_support", {})
-webm_supported = support_info.get("webm", True)
+recorder_supported = st.session_state.get("recorder_support", True)
 
 # Record audio directly in the browser if supported
-if mic_recorder and webm_supported:
+if mic_recorder and recorder_supported:
     recorded_audio = mic_recorder(
         start_prompt="🎙️ Record Question",
         stop_prompt="Stop",
@@ -180,7 +160,7 @@ if mic_recorder and webm_supported:
         key="recorder",
     )
 else:
-    if not webm_supported:
+    if not recorder_supported:
         st.info("Using basic recorder due to limited browser support.")
     elif not mic_recorder:
         st.info("streamlit-mic-recorder not installed. Using basic recorder.")
