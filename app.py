@@ -13,6 +13,8 @@ try:
 except ModuleNotFoundError:
     mic_recorder = None
 
+from streamlit.web.server.websocket_headers import _get_websocket_headers
+
 from utils_io import (
     get_api_key,
     read_pdf,
@@ -21,6 +23,17 @@ from utils_io import (
 )
 from utils_rag import chunk_text, embed_texts, retrieve_context
 from utils_ai import transcribe_cached, ask_llm, ask_llm_stream, text_to_speech, estimate_cost
+
+
+def _get_user_agent() -> str:
+    """Return the browser's user agent string if available."""
+    headers = _get_websocket_headers()
+    return headers.get("User-Agent", "") if headers else ""
+
+
+if "user_agent" not in st.session_state:
+    # Cache the UA to avoid repeated header lookups
+    st.session_state["user_agent"] = _get_user_agent()
 
 def process_audio_question(
     client,
@@ -135,14 +148,29 @@ st.markdown("### Ask a question")
 question_box = st.empty()
 transcript_box = st.empty()
 
+# Determine whether the browser can record audio
+ua = st.session_state.get("user_agent", "")
+unsupported_browser = False
+if ua:
+    ua_l = ua.lower()
+    if "safari" in ua_l and "chrome" not in ua_l:
+        unsupported_browser = True
+
 # Record audio directly in the browser if supported
-if mic_recorder:
+if mic_recorder and not unsupported_browser:
     recorded_audio = mic_recorder(
         start_prompt="🎙️ Record Question",
         stop_prompt="Stop",
         use_container_width=True,
         key="recorder",
     )
+elif mic_recorder and unsupported_browser:
+    st.warning(
+        "Voice recording isn't supported in this browser. "
+        "Please try a compatible browser like Chrome or upload an audio file instead."
+    )
+    st.button("🎙️ Record Question", disabled=True)
+    recorded_audio = None
 else:
     recorded_audio = None
     st.info("streamlit-mic-recorder not installed. Voice recording unavailable.")
