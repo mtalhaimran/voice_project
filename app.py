@@ -1,4 +1,5 @@
 import streamlit as st
+import time
 
 try:
     from openai import OpenAI
@@ -163,6 +164,22 @@ if mic_recorder and recorder_supported:
         format=REC_FORMAT,
         just_once=True,
     )
+    ios_audio = st.audio_input(
+        "📱 iOS fallback recorder (WAV)",
+        help="Use this if the mic button gets stuck on iOS/Safari.",
+    )
+    if ios_audio is not None:
+        ios_bytes = ios_audio.getvalue()
+        st.session_state["last_mic_audio_bytes"] = ios_bytes
+        st.session_state["last_mic_audio_fmt"] = "wav"
+        st.session_state["last_recorded_audio"] = {
+            "bytes": ios_bytes,
+            "sample_rate": 16000,
+            "sample_width": 2,
+            "format": "wav",
+            "id": int(time.time() * 1000),
+        }
+        recorded_audio = st.session_state["last_recorded_audio"]
 else:
     if not recorder_supported:
         st.info("Using basic recorder due to limited browser support.")
@@ -238,17 +255,20 @@ if st.session_state.get("last_mic_audio_bytes"):
     st.caption(f"Recorded audio: {len(bytes_)} bytes ({fmt})")
     if client and st.button("📝 Transcribe voice"):
         recorded_audio = st.session_state.get("last_recorded_audio")
-        if recorded_audio is not None:
-            cache = st.session_state.setdefault("transcription_cache", {})
-            with st.spinner("Transcribing..."):
-                try:
+        cache = st.session_state.setdefault("transcription_cache", {})
+        with st.spinner("Transcribing..."):
+            try:
+                if recorded_audio is not None:
                     audio_bytes, fmt, _ = audio_bytes_from_input(recorded_audio)
-                    text = transcribe_cached(client, audio_bytes, fmt, cache)
-                except Exception as e:
-                    st.error(str(e))
                 else:
-                    st.session_state["question_text"] = text
-                    transcript_box.markdown(f"**Transcription:** {text}")
+                    audio_bytes = st.session_state.get("last_mic_audio_bytes")
+                    fmt = st.session_state.get("last_mic_audio_fmt", REC_FORMAT)
+                text = transcribe_cached(client, audio_bytes, fmt, cache)
+            except Exception as e:
+                st.error(str(e))
+            else:
+                st.session_state["question_text"] = text
+                transcript_box.markdown(f"**Transcription:** {text}")
     elif not client:
         st.error("API key required for transcription.")
     if st.session_state.get("question_text"):
@@ -257,6 +277,9 @@ if st.session_state.get("last_mic_audio_bytes"):
         )
 else:
     st.session_state.pop("last_recorded_audio", None)
+    st.info(
+        "On iPhone/iPad, open this app over HTTPS (e.g., via ngrok or cloudflared) and try the WAV fallback."
+    )
 
 question = st.text_input(
     "Your question",
