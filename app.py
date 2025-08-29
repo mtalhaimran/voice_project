@@ -149,26 +149,41 @@ question_box = st.empty()
 transcript_box = st.empty()
 
 # Determine whether the browser can record audio
-ua = st.session_state.get("user_agent", "")
-unsupported_browser = False
-if ua:
-    ua_l = ua.lower()
-    if "safari" in ua_l and "chrome" not in ua_l:
-        unsupported_browser = True
+recorder_support = st.session_state.get("recorder_support")
+if recorder_support is None:
+    recorder_support = st.components.v1.html(
+        """
+        <script>
+        const info = {has:false, webm:false, mime:''};
+        if(window.MediaRecorder){
+            info.has = true;
+            if(MediaRecorder.isTypeSupported('audio/webm')){info.webm = true; info.mime='audio/webm';}
+            else if(MediaRecorder.isTypeSupported('audio/mp4')){info.mime='audio/mp4';}
+            else if(MediaRecorder.isTypeSupported('audio/ogg')){info.mime='audio/ogg';}
+        }
+        Streamlit.setComponentValue(info);
+        </script>
+        """,
+        height=0,
+    )
+    if recorder_support is not None:
+        st.session_state["recorder_support"] = recorder_support
+support_info = st.session_state.get("recorder_support", {})
+webm_supported = support_info.get("webm", True)
 
 # Record audio directly in the browser if supported
-if mic_recorder and not unsupported_browser:
+if mic_recorder and webm_supported:
     recorded_audio = mic_recorder(
         start_prompt="🎙️ Record Question",
         stop_prompt="Stop",
         use_container_width=True,
         key="recorder",
     )
-elif unsupported_browser:
-    st.warning(
-        "Voice recording isn't supported in this browser. "
-        "You can record below or upload an audio file instead."
-    )
+else:
+    if not webm_supported:
+        st.info("Using basic recorder due to limited browser support.")
+    elif not mic_recorder:
+        st.info("streamlit-mic-recorder not installed. Using basic recorder.")
     rec_data = st.components.v1.html(
         """
         <div>
@@ -198,7 +213,7 @@ elif unsupported_browser:
             const stream=await navigator.mediaDevices.getUserMedia({audio:true});
             chunks=[];
             try{rec=new MediaRecorder(stream,{mimeType:mime});}
-            catch(e){rec=new MediaRecorder(stream);} 
+            catch(e){rec=new MediaRecorder(stream);}
             rec.ondataavailable=e=>chunks.push(e.data);
             rec.onstop=()=>{
                 const blob=new Blob(chunks,{type:mime});
@@ -222,9 +237,6 @@ elif unsupported_browser:
         recorded_audio = {"file": uploaded_audio, "format": uploaded_audio.type}
     else:
         recorded_audio = None
-else:
-    recorded_audio = None
-    st.info("streamlit-mic-recorder not installed. Voice recording unavailable.")
 
 if recorded_audio:
     # Only process and clear the question when a new recording is captured
