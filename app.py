@@ -264,7 +264,7 @@ if st.session_state.get("last_answer"):
             f"Latency: {meta.get('latency', 0):.2f}s • Estimated cost: ${meta.get('cost', 0):.6f}"
         )
     if st.session_state.get("last_audio") and st.button("🔊 Play Answer Audio"):
-        st.audio(st.session_state["last_audio"], format="audio/mp3")
+        st.audio(st.session_state["last_audio"], format="audio/mpeg")
 
 st.markdown("---")
 st.caption("Demo: text or voice Q&A with optional context from your uploads/notes.")
